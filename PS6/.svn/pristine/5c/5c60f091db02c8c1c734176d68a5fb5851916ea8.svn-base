@@ -1,0 +1,162 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+
+namespace SS
+{
+    public partial class Form1 : Form
+    {
+        private Spreadsheet my_spread_sheet;
+        public Form1()
+        {
+            InitializeComponent();
+            this.Text = "Spreadsheet " + (SpreadsheetApplicationContext.getAppContext().get_form_count()+1);
+
+            my_spread_sheet = new Spreadsheet(IsValid, Normalize, "Default");
+            contents_box.Select();
+            spreadsheetPanel1.SelectionChanged += update_display;
+            //spreadsheetPanel1.SetSelection(2, 3);
+        }
+        private void update_display(SpreadsheetPanel ss)
+        {
+            contents_box.Select();
+            
+            int col, row;
+            String value;
+            ss.GetSelection(out col, out row);
+            string cell_name = (char)(65+col) + (row+1).ToString();
+            
+            if (my_spread_sheet.GetCellContents(cell_name) is double || my_spread_sheet.GetCellContents(cell_name) is string)
+            {
+                contents_box.Text = my_spread_sheet.GetCellContents(cell_name).ToString();
+            }
+            else
+            {
+                contents_box.Text = "=" + my_spread_sheet.GetCellContents(cell_name).ToString();
+            } 
+            ss.GetValue(col, row, out value);
+            position_label.Text = "Col " + col + ", " + "Row " + row + ", " + "Value " + my_spread_sheet.GetCellValue(cell_name);
+            contents_box.SelectAll();
+            //contents_box.Text = value;
+
+        }
+        private void update_key_press(object sender, KeyPressEventArgs e)
+        {
+            int col, row;
+            spreadsheetPanel1.GetSelection(out col, out row);
+            if (e.KeyChar == (char)Keys.Return)
+            {
+                
+                string value = contents_box.Text;
+                
+                string cell_name = (char)(65+col) + (row+1).ToString();
+                ISet<string> cells_to_recalulate;
+                try
+                {
+                    cells_to_recalulate = my_spread_sheet.SetContentsOfCell(cell_name, value);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message);
+                    cells_to_recalulate = new HashSet<string> { };
+                }
+                try
+                {
+                    spreadsheetPanel1.SetValue(col, row, my_spread_sheet.GetCellValue(cell_name).ToString());
+                }
+                catch
+                { }
+                foreach (string name in cells_to_recalulate)
+                {
+                    spreadsheetPanel1.SetValue(name[0] - 65, int.Parse(name.Substring(1))-1, my_spread_sheet.GetCellValue(name).ToString());
+                }
+                spreadsheetPanel1.SetSelection(col, row + 1);
+                update_display(spreadsheetPanel1);
+                //spreadsheetPanel1.Select();
+            }
+        }
+        private void update_key_press(object sender, KeyEventArgs e)
+        {
+            int col, row;
+            spreadsheetPanel1.GetSelection(out col, out row);
+            if (e.KeyCode == Keys.Up)
+            {
+                spreadsheetPanel1.SetSelection(col, row - 1);
+                contents_box.SelectAll();
+                update_display(spreadsheetPanel1);
+            }
+            else if (e.KeyCode == Keys.Down)
+            {
+                spreadsheetPanel1.SetSelection(col, row + 1);
+                contents_box.SelectAll();
+                update_display(spreadsheetPanel1);
+            }
+            else if (e.KeyCode == Keys.Left)
+            {
+                spreadsheetPanel1.SetSelection(col - 1, row);
+                contents_box.SelectAll();
+                update_display(spreadsheetPanel1);
+            }
+            else if (e.KeyCode == Keys.Right)
+            {
+                spreadsheetPanel1.SetSelection(col + 1, row);
+                contents_box.SelectAll();
+                update_display(spreadsheetPanel1);
+            }
+        }
+        private void newToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            SpreadsheetApplicationContext.getAppContext().RunForm(new Form1());
+        }
+
+        private void saveToolStripMenuItem1_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void saveAsToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            SaveFileDialog file = new SaveFileDialog();
+            file.Filter = "Spreadsheet Files (*.ss)|*.ss|All files (*.*)|*.*";
+            file.ShowDialog();
+            MessageBox.Show(file.FileName);
+        }
+        private void openToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog file = new OpenFileDialog();
+            file.Filter = "Spreadsheet Files (*.ss)|*.ss|All files (*.*)|*.*";
+            file.ShowDialog();
+            
+            MessageBox.Show(file.FileName);
+        }
+
+        private void exitToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (my_spread_sheet.Changed)
+            {
+                //MessageBox.Show("This spread sheet has changed");
+                FilePrompt file = new FilePrompt("FileChange", this);
+                file.Show();
+            }
+            else
+            {
+                Close();
+            }
+        }
+        private string Normalize(string name)
+        {
+            return name.ToUpper();
+        }
+        private bool IsValid(string name)
+        {
+            return true;
+        }
+
+    }
+    
+}

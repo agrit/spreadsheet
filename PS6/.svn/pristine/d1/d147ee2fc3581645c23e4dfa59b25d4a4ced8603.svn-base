@@ -1,0 +1,292 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using System.Text.RegularExpressions;
+
+namespace SS
+{
+    public partial class Form1 : Form
+    {
+        private Spreadsheet my_spread_sheet;
+        private string save_location;
+        public Form1()
+        {
+            InitializeComponent();
+            this.Text = "Spreadsheet " + (SpreadsheetApplicationContext.getAppContext().get_form_count() + 1);
+
+            my_spread_sheet = new Spreadsheet(IsValid, Normalize, "ps6");
+            contents_box.Select();
+            spreadsheetPanel1.SelectionChanged += update_display;
+            spreadsheetPanel1.SetSelection(0, 0);
+            position_label.Text = "File Location: ";
+        }
+        public Form1(string file_name)
+        {
+            InitializeComponent();
+            save_location = file_name;
+            this.Text = "Spreadsheet " + (SpreadsheetApplicationContext.getAppContext().get_form_count() + 1);
+
+            my_spread_sheet = new Spreadsheet(save_location, IsValid, Normalize, "ps6");
+            contents_box.Select();
+            spreadsheetPanel1.SelectionChanged += update_display;
+            
+            position_label.Text = "File Location: "+save_location;
+            open_function();
+            //spreadsheetPanel1.SetSelection(2, 3);
+        }
+        private void update_display(SpreadsheetPanel ss)
+        {
+            contents_box.Select();
+
+            int col, row;
+            String value;
+            ss.GetSelection(out col, out row);
+            string cell_name = (char)(65 + col) + (row + 1).ToString();
+
+            if (my_spread_sheet.GetCellContents(cell_name) is double || my_spread_sheet.GetCellContents(cell_name) is string)
+            {
+                if(my_spread_sheet.GetCellContents(cell_name).ToString().Length >1)
+                {
+                    contents_box.Text = my_spread_sheet.GetCellContents(cell_name).ToString();  
+                }
+                else
+                {
+                    contents_box.Text = "";
+                }
+            }
+            else
+            {
+                contents_box.Text = "=" + my_spread_sheet.GetCellContents(cell_name).ToString();
+            }
+            if (my_spread_sheet.GetCellValue(cell_name)!= null)
+            {
+                value_box.Text = my_spread_sheet.GetCellValue(cell_name).ToString();
+            }
+            else
+            {
+                value_box.Clear();
+            }
+            //ss.GetValue(col, row, out value);
+           // position_label.Text = "Col " + (char)(col+65) + ", " + "Row " + (row+1) + ", " +" |  File Location: " + save_location;
+            position_label.Text = "File Location: " + save_location;
+            value_label.Text = cell_name + " Value";
+            contents_box.SelectAll();
+        }
+        private void update_key_press(object sender, KeyPressEventArgs e)
+        {
+            int col, row;
+            spreadsheetPanel1.GetSelection(out col, out row);
+            if (e.KeyChar == (char)Keys.Return)
+            {
+                e.Handled = true;
+                string value = contents_box.Text;
+
+                string cell_name = (char)(65 + col) + (row + 1).ToString();
+                ISet<string> cells_to_recalulate;
+                try
+                {
+                    if (value != "")
+                    {
+                        cells_to_recalulate = my_spread_sheet.SetContentsOfCell(cell_name, value);
+                    }
+                    else
+                    {
+                        cells_to_recalulate = new HashSet<string> { };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message);
+                    cells_to_recalulate = new HashSet<string> { };
+                }
+                try
+                {
+                    spreadsheetPanel1.SetValue(col, row, my_spread_sheet.GetCellValue(cell_name).ToString());
+                }
+                catch
+                { }
+                foreach (string name in cells_to_recalulate)
+                {
+                    spreadsheetPanel1.SetValue(name[0] - 65, int.Parse(name.Substring(1)) - 1, my_spread_sheet.GetCellValue(name).ToString());
+                    
+                }
+                spreadsheetPanel1.SetSelection(col, row + 1);
+                update_display(spreadsheetPanel1);
+                //spreadsheetPanel1.Select();
+            }
+        }
+        private void update_key_press(object sender, KeyEventArgs e)
+        
+        {
+            int col, row;
+            spreadsheetPanel1.GetSelection(out col, out row);
+            if (e.KeyCode == Keys.Up)
+            {
+                spreadsheetPanel1.SetSelection(col, row - 1);
+                update_display(spreadsheetPanel1);
+                contents_box.SelectAll();
+            }
+            else if (e.KeyCode == Keys.Down)
+            {
+                spreadsheetPanel1.SetSelection(col, row + 1);
+                update_display(spreadsheetPanel1);
+                contents_box.SelectAll();
+            }
+            else if (e.KeyCode == Keys.Left)
+            {
+                spreadsheetPanel1.SetSelection(col - 1, row);
+                update_display(spreadsheetPanel1);
+                contents_box.SelectAll();
+            }
+            else if (e.KeyCode == Keys.Right)
+            {
+                spreadsheetPanel1.SetSelection(col + 1, row);
+                update_display(spreadsheetPanel1);
+                contents_box.SelectAll();
+            }
+            else if (e.Modifiers == Keys.Control && e.KeyCode == Keys.S)
+            {
+                e.Handled = true;
+                saveToolStripMenuItem1_Click(sender, e);
+            }
+        }
+        private void newToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            SpreadsheetApplicationContext.getAppContext().RunForm(new Form1());
+        }
+
+        private void saveToolStripMenuItem1_Click(object sender, EventArgs e)
+        {
+            if (save_location == null)
+            {
+                SaveFileDialog file = new SaveFileDialog();
+                file.Filter = "Spreadsheet Files (*.ss)|*.ss|All files (*.*)|*.*";
+                file.ShowDialog();
+                save_location = file.FileName;
+                position_label.Text += save_location;
+            }
+            if (save_location!=null && save_location!= "")
+            {
+                try
+                {
+                    my_spread_sheet.Save(save_location);
+                }
+                catch (Exception ex)
+                {
+                    
+                    MessageBox.Show(ex.Message);
+                }
+            }
+            else
+            {
+                MessageBox.Show("No filepath defined to save to");
+            }
+        }
+
+        private void saveAsToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            SaveFileDialog file = new SaveFileDialog();
+            file.Filter = "Spreadsheet Files (*.ss)|*.ss|All files (*.*)|*.*";
+            file.ShowDialog();
+            save_location = file.FileName;
+            saveToolStripMenuItem1_Click(sender, e);
+        }
+        private void openToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog file = new OpenFileDialog();
+            file.Filter = "Spreadsheet Files (*.ss)|*.ss|All files (*.*)|*.*";
+            file.ShowDialog();
+            save_location = file.FileName;
+            if (save_location != null && save_location != "")
+            {
+                try
+                {
+                    SpreadsheetApplicationContext.getAppContext().RunForm(new Form1(save_location));
+                }
+                catch (Exception ex)
+                {
+
+                    MessageBox.Show("Unable to open file" + ex);
+                }
+            }
+        }
+        private void open_function()
+        {
+            IEnumerable<string> non_empty = my_spread_sheet.GetNamesOfAllNonemptyCells();
+            foreach (string name in non_empty)
+            {
+                spreadsheetPanel1.SetValue(name[0] - 65, int.Parse(name.Substring(1)) - 1, my_spread_sheet.GetCellValue(name).ToString());
+            }
+        }
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            //MessageBox.Show(e.CloseReason.ToString());
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                if (my_spread_sheet.Changed)
+                {
+                    switch (MessageBox.Show(this, "This file has been changed.\n Are you sure you want to close?", "Closing", MessageBoxButtons.YesNo))
+                    {
+                        case DialogResult.No:
+                            e.Cancel = true;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+        }
+        private void exitToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Close();
+        }
+        private string Normalize(string name)
+        {
+            return name.ToUpper();
+        }
+        private bool IsValid(string name)
+        {
+            bool valid = false;
+            Regex var = new Regex(@"(^[A-Z][1-9]$)|(^[A-Z][1-9][0-9]$)");
+            if (var.IsMatch(Normalize(name)))
+            {
+                valid = true;
+            }
+            return valid;
+        }
+
+        private void aboutToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("Created by Alex Gritton fall 2012 for CS 3500.");
+        }
+        private void helpMenuSave_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("Two things can happen when the user clicks the Save button in the File Menu.\n 1. If its the first time the user saves the file, they will be prompted for a save location.\n 2. The file will be saved in the original location.");
+        }
+
+        private void helpMenuSaveAs_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("By pressing the SaveAs button in the File Menu, the user is able to choose where they save their file.");
+        }
+
+        private void viewMenuFileLocation_Click(object sender, EventArgs e)
+        {
+            position_label.Show();
+            viewMenuHideLocation.Enabled = true;
+            viewMenuFileLocation.Enabled = false;
+        }
+
+        private void viewMenuHideLocation_Click(object sender, EventArgs e)
+        {
+            position_label.Hide();
+            viewMenuHideLocation.Enabled = false;
+            viewMenuFileLocation.Enabled = true;
+        }
+    }
+}

@@ -1,0 +1,431 @@
+﻿//Created by Alex Gritton, U0667623 for Cs3500 Fall 2012
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using System.Text.RegularExpressions;
+
+namespace SS
+{
+    public partial class Form1 : Form
+    {
+        //this is the abstract spreadsheet that the gui reads from.
+        private Spreadsheet my_spread_sheet;
+        //this keeps the last save location of the current file. This is primarily for the Save button.
+        private string save_location;
+        /// <summary>
+        /// Creates a new spread sheet the user can interact with.
+        /// </summary>
+        public Form1()
+        {
+            InitializeComponent();
+            //sets the title of the spread sheet to 1 more than the one that opened it.
+            this.Text = "Spreadsheet " + (SpreadsheetApplicationContext.getAppContext().get_form_count() + 1);
+            my_spread_sheet = new Spreadsheet(IsValid, Normalize, "ps6");
+            //sets the initial user edit location to the contents box.
+            contents_box.Select();
+            spreadsheetPanel1.SelectionChanged += update_display;
+            spreadsheetPanel1.SetSelection(0, 0);
+            //displays on the bottom of the GUI what the current file location is.
+            position_label.Text = "File Location: ";
+        }
+        /// <summary>
+        /// Creates a new spread sheet that the file name param contains.
+        /// </summary>
+        /// <param name="file_name"></param>
+        public Form1(string file_name)
+        {
+            InitializeComponent();
+            save_location = file_name;
+            this.Text = "Spreadsheet " + (SpreadsheetApplicationContext.getAppContext().get_form_count() + 1);
+            my_spread_sheet = new Spreadsheet(save_location, IsValid, Normalize, "ps6");
+            contents_box.Select();
+            spreadsheetPanel1.SelectionChanged += update_display;
+            spreadsheetPanel1.SetSelection(0, 0);
+            position_label.Text = "File Location: "+save_location;
+            open_function();
+        }
+        /// <summary>
+        /// updates the display of the GUI.
+        /// </summary>
+        /// <param name="ss"></param>
+        private void update_display(SpreadsheetPanel ss)
+        {
+            contents_box.Select();
+            //stores where the user has selected on the spreadsheetpanel.
+            int col, row;
+            ss.GetSelection(out col, out row);
+            //converts the col row location on the spreadsheetpanel to a usable name such as A1 for (0,0).
+            string cell_name = (char)(65 + col) + (row + 1).ToString();
+            //if the contents of the highlighted cell is a double or a string this and the contents are longer than 
+            //0(meaning they aren't "" then this sets the contents box back to what the user entered before, otherwise
+            //sets the contents box to empty.
+            if (my_spread_sheet.GetCellContents(cell_name) is double || my_spread_sheet.GetCellContents(cell_name) is string)
+            {
+                if(my_spread_sheet.GetCellContents(cell_name).ToString().Length >=1)
+                {
+                    contents_box.Text = my_spread_sheet.GetCellContents(cell_name).ToString();  
+                }
+                else
+                {
+                    contents_box.Text = "";
+                }
+            }
+            //if the cell names contents are not a double or a string then it must be a formula so an = is prepended.
+            else
+            {
+                contents_box.Text = "=" + my_spread_sheet.GetCellContents(cell_name).ToString();
+            }
+            //if the cell name has a value then it is displayed in the value box.
+            if (my_spread_sheet.GetCellValue(cell_name)!= null)
+            {
+                value_box.Text = my_spread_sheet.GetCellValue(cell_name).ToString();
+            }
+            //if the cell name does not have a value then the value box is cleared.
+            else
+            {
+                value_box.Clear();
+            }
+            //shows the current file location being saved to.
+            position_label.Text = "File Location: " + save_location;
+            //this shows the current cell name selected along with value appended in the value label next to the value box.
+            value_label.Text = cell_name + " Value";
+            contents_box.SelectAll();
+        }
+        /// <summary>
+        /// If the enter key is pressed while the contents box is selected this event is handled.
+        /// This event updates the spread sheet to what is currently in the contents box.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void update_key_press(object sender, KeyPressEventArgs e)
+        {
+            int col, row;
+            spreadsheetPanel1.GetSelection(out col, out row);
+            //checks if the key that was pressed is the return key.
+            if (e.KeyChar == (char)Keys.Return)
+            {
+                //the return key was handled removing the ding.
+                e.Handled = true;
+                string value = contents_box.Text;
+                string cell_name = (char)(65 + col) + (row + 1).ToString();
+                //when a cell value is changed the cells that depend on it must also be recalculated.
+                ISet<string> cells_to_recalulate;
+                try
+                {
+                    if (value != "")
+                    {
+                        cells_to_recalulate = my_spread_sheet.SetContentsOfCell(cell_name, value);
+                    }
+                    else
+                    {
+                        cells_to_recalulate = my_spread_sheet.SetContentsOfCell(cell_name, " ");
+                        //cells_to_recalulate = new HashSet<string> { };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message);
+                    cells_to_recalulate = new HashSet<string> { };
+                }
+                try
+                {
+                    //this sets the value of the cell on the spreadsheetpanel so the user can see.
+                    spreadsheetPanel1.SetValue(col, row, my_spread_sheet.GetCellValue(cell_name).ToString());
+                }
+                catch
+                { }
+                foreach (string name in cells_to_recalulate)
+                {
+                    //this loops through each cell dependent on the cell name and displays its value to the user on the spreadsheetpanel
+                    spreadsheetPanel1.SetValue(name[0] - 65, int.Parse(name.Substring(1)) - 1, my_spread_sheet.GetCellValue(name).ToString());
+                    
+                }
+                //when the enter key is pressed all of the logic is evaluated for that cell and then it moves to cell below
+                spreadsheetPanel1.SetSelection(col, row + 1);
+                //updates the display for the cell below after its moved to that cell.
+                update_display(spreadsheetPanel1);
+                //spreadsheetPanel1.Select();
+            }
+        }
+        /// <summary>
+        /// Checks if the user presses any of the arrow keys or Ctl+S.
+        /// If the user presses an arrow the focus is moved the appriate cell.
+        /// If the user presses Ctl+S this file is saved to the current file location.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void update_key_press(object sender, KeyEventArgs e)
+        {
+            int col, row;
+            spreadsheetPanel1.GetSelection(out col, out row);
+            if (e.KeyCode == Keys.Up)
+            {
+                spreadsheetPanel1.SetSelection(col, row - 1);
+                update_display(spreadsheetPanel1);
+            }
+            else if (e.KeyCode == Keys.Down)
+            {
+                spreadsheetPanel1.SetSelection(col, row + 1);
+                update_display(spreadsheetPanel1);
+            }
+            else if (e.KeyCode == Keys.Left)
+            {
+                spreadsheetPanel1.SetSelection(col - 1, row);
+                update_display(spreadsheetPanel1);
+            }
+            else if (e.KeyCode == Keys.Right)
+            {
+                spreadsheetPanel1.SetSelection(col + 1, row);
+                update_display(spreadsheetPanel1);
+            }
+            else if (e.Modifiers == Keys.Control && e.KeyCode == Keys.S)
+            {
+                e.Handled = true;
+                saveToolStripMenuItem1_Click(sender, e);
+            }
+        }
+        /// <summary>
+        /// If the user clicks the new button in the file menu strip, a new spreadsheet GUI is created.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void newToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            SpreadsheetApplicationContext.getAppContext().RunForm(new Form1());
+        }
+        /// <summary>
+        /// If the user clicks the save button in the file menu, the current file is saved.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void saveToolStripMenuItem1_Click(object sender, EventArgs e)
+        {
+            //if the spread sheet has never been saved this asks the user where they would like to save it.
+            if (save_location == null)
+            {
+                SaveFileDialog file = new SaveFileDialog();
+                file.Filter = "Spreadsheet Files (*.ss)|*.ss|All files (*.*)|*.*";
+                file.ShowDialog();
+                save_location = file.FileName;
+                position_label.Text += save_location;
+            }
+            //if the spread sheet has a valid location to save to this saves the file, otherwise it show the user a message explaning what went wrong.
+            if (save_location!=null && save_location!= "")
+            {
+                try
+                {
+                    my_spread_sheet.Save(save_location);
+                }
+                catch (Exception ex)
+                {
+                    
+                    MessageBox.Show(ex.Message);
+                }
+            }
+            else
+            {
+                MessageBox.Show("No filepath defined to save to");
+            }
+        }
+        /// <summary>
+        /// This allows the user to choose a location to save their spreadsheet.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void saveAsToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            SaveFileDialog file = new SaveFileDialog();
+            file.Filter = "Spreadsheet Files (*.ss)|*.ss|All files (*.*)|*.*";
+            file.ShowDialog();
+            save_location = file.FileName;
+            saveToolStripMenuItem1_Click(sender, e);
+        }
+        /// <summary>
+        /// This opens a valid spread sheet in a new window.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void openToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            //Asks the user for a location to open from
+            OpenFileDialog file = new OpenFileDialog();
+            file.Filter = "Spreadsheet Files (*.ss)|*.ss|All files (*.*)|*.*";
+            file.ShowDialog();
+            //saves the location that was opened so the user can save the spread sheet back to that location.
+            save_location = file.FileName;
+            if (save_location != null && save_location != "")
+            {
+                try
+                {
+                    SpreadsheetApplicationContext.getAppContext().RunForm(new Form1(save_location));
+                }
+                catch (Exception ex)
+                {
+
+                    MessageBox.Show("Unable to open file" + ex);
+                }
+            }
+        }
+        /// <summary>
+        /// This function loops through all the newly added names in a spread sheet and updates the spreadsheetpanel accordingly.
+        /// </summary>
+        private void open_function()
+        {
+            IEnumerable<string> non_empty = my_spread_sheet.GetNamesOfAllNonemptyCells();
+            foreach (string name in non_empty)
+            {
+                spreadsheetPanel1.SetValue(name[0] - 65, int.Parse(name.Substring(1)) - 1, my_spread_sheet.GetCellValue(name).ToString());
+            }
+        }
+        /// <summary>
+        /// Prompts the user if the file has changed before they close it allowing them to discard or cancel.
+        /// </summary>
+        /// <param name="e"></param>
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            //MessageBox.Show(e.CloseReason.ToString());
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                if (my_spread_sheet.Changed)
+                {
+                    switch (MessageBox.Show(this, "This file has been modified.\nAre you sure you want to close?", "Closing", MessageBoxButtons.YesNo))
+                    {
+                        case DialogResult.No:
+                            e.Cancel = true;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+        }
+        /// <summary>
+        /// Exits the program if no changes have been made, otherwise asks the user what they would like to do.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void exitToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Close();
+        }
+        /// <summary>
+        /// Normalize delegate to be passed into a newly created spreadsheet.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        private string Normalize(string name)
+        {
+            return name.ToUpper();
+        }
+        /// <summary>
+        /// IsValid function to be passed into a newly created spreadsheet.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        private bool IsValid(string name)
+        {
+            bool valid = false;
+            //Name must be either a Single letter followed by a non zero digit or a Single letter folloed by a non zero digit and a digit.
+            Regex var = new Regex(@"(^[A-Z][1-9]$)|(^[A-Z][1-9][0-9]$)");
+            if (var.IsMatch(Normalize(name)))
+            {
+                valid = true;
+            }
+            return valid;
+        }
+        /// <summary>
+        /// Displays a message when the about is clicked in the help menu.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void aboutToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("Created by Alex Gritton fall 2012 for CS 3500.");
+        }
+        /// <summary>
+        /// Explains how to save a file when the save is clicked in the help menu.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void helpMenuSave_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("Two things can happen when the user clicks the Save button in the File Menu.\n 1. If its the first time the user saves the file, they will be prompted for a save location.\n 2. The file will be saved in the original location.");
+        }
+        /// <summary>
+        /// Explains how to save as a file when the save as is clicked in the help menu.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void helpMenuSaveAs_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("By pressing the SaveAs button in the File Menu, the user is able to choose where they save their file.");
+        }
+        /// <summary>
+        /// Allows the user to see the current file location when the Show File Location is clicked in the view menu.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void viewMenuFileLocation_Click(object sender, EventArgs e)
+        {
+            position_label.Show();
+            viewMenuHideLocation.Enabled = true;
+            viewMenuFileLocation.Enabled = false;
+        }
+        /// <summary>
+        /// Prevents the user from seeing the current file location when the Hide File Locatoin is clicked in the view menu.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void viewMenuHideLocation_Click(object sender, EventArgs e)
+        {
+            position_label.Hide();
+            viewMenuHideLocation.Enabled = false;
+            viewMenuFileLocation.Enabled = true;
+        }
+        /// <summary>
+        /// Explains how the contents box works to the user.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void viewMenuCellContents_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("The Contents Box allows the user to input three types of data.\n 1. A formula starting with \"=\". Example =A1+A2.\n 2. Text. Example \"Hello World\". \n 3. A number. Example \"3.5\".");
+        }
+
+        private void viewMenuTextBoxValue_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("The Value Box shows the user the value of the current cell indicated in the Label to the left of the Value Box.");
+        }
+
+        private void viewMenuCellBoxValue_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("The values of the Cells are shown in the cell corresponding to its name.");
+        }
+
+        private void helpMenuSpreadSheetFormula_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("If the user inputs a formula that references an empty or invalid cell, a SpreadSheet.FormulaError is placed in the cell value. Example(A1: Hello, A2: =A1+2)");
+        }
+
+        private void helpMenuInvalidFormula_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("If the user inputs an invalid formula into the contents box, an Invalid Formula Popup is displayed. Bad Formula Examples: (=A1++), (=AA11+BB22), (=A3A), (=A1+3())");
+        }
+
+        private void helpMenuCircularException_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("A Circular Exception window is displayed if a cells formula references itself. Example: (A1: =A1+2)");
+        }
+
+        private void undoToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("TODO: Add undo operations for CS 3505 Project.");
+        }
+    }
+}
